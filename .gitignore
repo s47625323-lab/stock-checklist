@@ -1,0 +1,7 @@
+# Never commit your trade data — it has your entry/exit prices and chart images
+stock-checklist-backup*.json
+*.json
+
+# OS junk
+.DS_Store
+Thumbs.db
