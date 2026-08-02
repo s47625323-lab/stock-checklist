@@ -1106,6 +1106,7 @@
 
     // ---- comment popup ----
     var popup = document.getElementById("cmtPopup");
+    if (popup){
     var popupName = document.getElementById("cmtPopupName");
     var popupBuyRow = document.getElementById("cmtBuyRow");
     var popupSellRow = document.getElementById("cmtSellRow");
@@ -1181,6 +1182,7 @@
     document.addEventListener("keydown", function(ev){
       if(ev.key==="Escape") hidePopup(true);
     });
+    } // end if(popup)
     // ---- end comment popup ----
 
     document.getElementById("searchBox").oninput = function(ev){
