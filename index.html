@@ -485,6 +485,20 @@
     cursor:pointer;
   }
   #lock-btn:hover{color:var(--text); border-color:var(--border-strong);}
+
+  .lessons-panel details + details{border-top:1px solid var(--border);}
+  .gh-btn{
+    font-size:12.5px; font-weight:600; padding:8px 12px; border-radius:8px; border:1px solid var(--border-strong);
+    background:var(--surface); color:var(--text); cursor:pointer; margin:0 6px 6px 0;
+  }
+  .gh-btn:hover{background:var(--surface-2);}
+  .gh-field{display:block; font-size:11px; color:var(--text-mute); margin:8px 0 4px;}
+  .gh-input{
+    width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border-strong);
+    background:var(--surface-2); color:var(--text); font-size:12.5px; outline:none;
+  }
+  .gh-input:focus{border-color:var(--gold);}
+  #gh-status{font-size:12px; color:var(--text-mute); margin-bottom:10px; line-height:1.5;}
   .lessons-panel{
     flex:none; width:272px; margin:14px 0 0 14px;
     position:sticky; top:14px; max-height:calc(100vh - 28px); overflow-y:auto;
@@ -565,13 +579,38 @@
         </div>
       </div>
     </details>
+    <details id="gh-details">
+      <summary>GitHub backup</summary>
+      <div class="lessons-body" id="gh-body">
+        <div id="gh-status">Not connected yet.</div>
+        <label id="gh-auto-row" style="display:none; align-items:center; gap:7px; font-size:12px; color:var(--text-soft); margin-bottom:10px; cursor:pointer;">
+          <input type="checkbox" id="gh-auto-toggle" style="margin:0;">
+          Auto-backup after every change
+        </label>
+        <button id="gh-setup-btn" class="gh-btn" type="button">Set up</button>
+        <button id="gh-backup-btn" class="gh-btn" type="button" style="display:none;">Backup now</button>
+        <button id="gh-restore-btn" class="gh-btn" type="button" style="display:none;">Restore</button>
+        <button id="gh-reset-btn" class="gh-btn" type="button" style="display:none;">Change settings</button>
+        <div id="gh-form" style="display:none; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);">
+          <label class="gh-field">Fine-grained token (Contents read/write, this repo only)</label>
+          <input type="password" id="gh-token" class="gh-input" placeholder="github_pat_...">
+          <label class="gh-field">Repo owner (your GitHub username)</label>
+          <input type="text" id="gh-owner" class="gh-input" placeholder="yourusername">
+          <label class="gh-field">Repo name (a private repo, dedicated to backups)</label>
+          <input type="text" id="gh-repo" class="gh-input" placeholder="stock-checklist-data">
+          <label class="gh-field">File path in that repo</label>
+          <input type="text" id="gh-path" class="gh-input" value="trades-backup.json">
+          <button id="gh-save-btn" class="gh-btn" type="button" style="width:100%; margin-top:10px;">Save settings</button>
+        </div>
+      </div>
+    </details>
   </aside>
 </div>
 
 <script>
 (function(){
   // ---- password gate (client-side deterrent, not real security — see README) ----
-  var GATE_HASH = "73ae95b7"; // hash of "changeme" — CHANGE THIS, see README.md
+  var GATE_HASH = "83e5f1cb"; // hash of "changeme" — CHANGE THIS, see README.md
   function simpleHash(str){
     var h = 5381;
     for (var i=0; i<str.length; i++){ h = ((h*33) ^ str.charCodeAt(i)) >>> 0; }
@@ -606,6 +645,149 @@
     if (e.key === 'Enter'){ document.getElementById('pw-submit').click(); }
   });
   lockBtn.addEventListener('click', lock);
+})();
+</script>
+
+<script>
+(function(){
+  "use strict";
+  var ENTRIES_KEY = "stockChecklist_upgrade_entries_v1";
+  var CFG_KEY = "ghBackupCfg";
+  var AUTO_KEY = "ghAutoBackup";
+
+  function getCfg(){
+    try{ return JSON.parse(localStorage.getItem(CFG_KEY) || "null"); }
+    catch(e){ return null; }
+  }
+  function setCfg(cfg){ localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }
+  function getAuto(){ var v = localStorage.getItem(AUTO_KEY); return v === null ? true : v === '1'; }
+  function setAuto(v){ localStorage.setItem(AUTO_KEY, v ? '1' : '0'); }
+
+  var statusEl = document.getElementById('gh-status');
+  var setupBtn = document.getElementById('gh-setup-btn');
+  var backupBtn = document.getElementById('gh-backup-btn');
+  var restoreBtn = document.getElementById('gh-restore-btn');
+  var changeBtn = document.getElementById('gh-reset-btn');
+  var formEl = document.getElementById('gh-form');
+  var autoRow = document.getElementById('gh-auto-row');
+  var autoToggle = document.getElementById('gh-auto-toggle');
+
+  function refreshUI(msg){
+    var cfg = getCfg();
+    if (cfg && cfg.token && cfg.owner && cfg.repo){
+      statusEl.textContent = msg || ('Connected: ' + cfg.owner + '/' + cfg.repo + ' → ' + cfg.path);
+      setupBtn.style.display = 'none';
+      backupBtn.style.display = 'inline-block';
+      restoreBtn.style.display = 'inline-block';
+      changeBtn.style.display = 'inline-block';
+      formEl.style.display = 'none';
+      autoRow.style.display = 'flex';
+      autoToggle.checked = getAuto();
+    } else {
+      statusEl.textContent = msg || 'Not connected yet.';
+      setupBtn.style.display = 'inline-block';
+      backupBtn.style.display = 'none';
+      restoreBtn.style.display = 'none';
+      changeBtn.style.display = 'none';
+      autoRow.style.display = 'none';
+    }
+  }
+
+  function b64EncodeUnicode(str){
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, function(m, p1){
+      return String.fromCharCode('0x' + p1);
+    }));
+  }
+  function apiUrl(cfg){
+    return 'https://api.github.com/repos/' + encodeURIComponent(cfg.owner) + '/' + encodeURIComponent(cfg.repo) + '/contents/' + cfg.path.split('/').map(encodeURIComponent).join('/');
+  }
+  function baseHeaders(cfg){
+    return { 'Authorization': 'Bearer ' + cfg.token, 'X-GitHub-Api-Version': '2022-11-28', 'Accept': 'application/vnd.github+json' };
+  }
+
+  async function doBackup(){
+    var cfg = getCfg();
+    if (!cfg) return;
+    refreshUI('Backing up…');
+    try{
+      var raw = localStorage.getItem(ENTRIES_KEY) || '[]';
+      var sha = null;
+      var getRes = await fetch(apiUrl(cfg), { headers: baseHeaders(cfg) });
+      if (getRes.status === 200){
+        var meta = await getRes.json();
+        sha = meta.sha;
+      } else if (getRes.status !== 404){
+        throw new Error('lookup failed (' + getRes.status + ')');
+      }
+      var body = { message: 'Trade backup ' + new Date().toISOString(), content: b64EncodeUnicode(raw) };
+      if (sha) body.sha = sha;
+      var putRes = await fetch(apiUrl(cfg), {
+        method: 'PUT',
+        headers: Object.assign({}, baseHeaders(cfg), {'Content-Type':'application/json'}),
+        body: JSON.stringify(body)
+      });
+      if (!putRes.ok){
+        var errText = await putRes.text();
+        throw new Error('save failed (' + putRes.status + ') ' + errText.slice(0,140));
+      }
+      refreshUI('Backed up ' + new Date().toLocaleString());
+    } catch(e){
+      refreshUI('Error: ' + e.message);
+    }
+  }
+
+  async function doRestore(){
+    var cfg = getCfg();
+    if (!cfg) return;
+    if (!confirm('This replaces the entries in THIS browser with the GitHub backup. Continue?')) return;
+    refreshUI('Restoring…');
+    try{
+      var res = await fetch(apiUrl(cfg), { headers: Object.assign({}, baseHeaders(cfg), {'Accept':'application/vnd.github.raw'}) });
+      if (!res.ok){ throw new Error('fetch failed (' + res.status + ')'); }
+      var text = await res.text();
+      JSON.parse(text); // validate it's real JSON before saving over local data
+      localStorage.setItem(ENTRIES_KEY, text);
+      refreshUI('Restored. Reloading…');
+      setTimeout(function(){ location.reload(); }, 700);
+    } catch(e){
+      refreshUI('Error: ' + e.message);
+    }
+  }
+
+  setupBtn.addEventListener('click', function(){ formEl.style.display = 'block'; });
+  changeBtn.addEventListener('click', function(){ formEl.style.display = formEl.style.display === 'block' ? 'none' : 'block'; });
+  document.getElementById('gh-save-btn').addEventListener('click', function(){
+    var token = document.getElementById('gh-token').value.trim();
+    var owner = document.getElementById('gh-owner').value.trim();
+    var repo = document.getElementById('gh-repo').value.trim();
+    var path = document.getElementById('gh-path').value.trim() || 'trades-backup.json';
+    if (!token || !owner || !repo){ alert('Fill in token, owner, and repo.'); return; }
+    setCfg({ token: token, owner: owner, repo: repo, path: path });
+    document.getElementById('gh-token').value = '';
+    refreshUI();
+  });
+  backupBtn.addEventListener('click', doBackup);
+  restoreBtn.addEventListener('click', doRestore);
+  autoToggle.addEventListener('change', function(){ setAuto(autoToggle.checked); });
+
+  // Watch every write to the entries key and auto-push to GitHub, debounced so a
+  // burst of edits (typing across several fields) collapses into one API call.
+  var autoTimer = null;
+  var AUTO_DEBOUNCE_MS = 4000;
+  var originalSetItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function(key, value){
+    originalSetItem(key, value);
+    if (key === ENTRIES_KEY){
+      var cfg = getCfg();
+      if (cfg && getAuto()){
+        clearTimeout(autoTimer);
+        refreshUI('Change detected — backing up shortly…');
+        autoTimer = setTimeout(doBackup, AUTO_DEBOUNCE_MS);
+      }
+    }
+  };
+
+  refreshUI();
 })();
 </script>
 
