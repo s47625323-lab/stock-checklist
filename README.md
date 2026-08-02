@@ -39,6 +39,57 @@ page, unlock it, then use **Import** and load your `stock-checklist-backup-*.jso
 export to bring your trades in. You'll need to do this separately on every
 browser/device you use it from — there's no sync between them.
 
+## Surviving a cache/cookie clear: back up to GitHub
+
+The app now has a **GitHub backup** panel (below the trading rules panel) that
+saves your entries as a file in a private repo you control — so a cleared
+browser cache or cookies won't lose your history. It reads and writes
+`stockChecklist_upgrade_entries_v1` directly, the same data the app already
+uses.
+
+**One-time setup:**
+
+1. Create a **new private repo** on GitHub, dedicated only to this backup —
+   e.g. `stock-checklist-data`. Don't reuse the repo that hosts the app itself.
+2. Go to **github.com → Settings → Developer settings → Personal access tokens
+   → Fine-grained tokens → Generate new token**.
+3. Set an expiration (90 days is a reasonable default — you can generate a new
+   one after).
+4. Under **Repository access**, choose "Only select repositories" and pick the
+   `stock-checklist-data` repo only.
+5. Under **Permissions → Repository permissions**, set **Contents: Read and
+   write**. Leave everything else as "No access."
+6. Generate the token and copy it (GitHub only shows it once).
+7. In the app's GitHub backup panel, click **Set up**, paste the token, your
+   GitHub username, the repo name, and a file path (default
+   `trades-backup.json` is fine). Click **Save settings**.
+8. Click **Backup now**. Refresh the repo page on GitHub — the file should
+   appear.
+
+From then on: **Backup now** pushes your current entries to that repo (view or
+download the file anytime from the GitHub website). **Restore** pulls it back
+into whichever browser you're using — handy after a cache clear or on a new
+device.
+
+**Auto-backup:** once you're connected, an "Auto-backup after every change"
+checkbox appears, checked by default. With it on, any time you add, edit, or
+save an entry, the app waits about 4 seconds (to let a burst of edits settle,
+so it's not firing on every keystroke) and then pushes the update to GitHub by
+itself — no need to remember to click Backup now. Uncheck it if you'd rather
+back up manually, e.g. on a slow connection.
+
+**Security notes:**
+- The token is scoped to *one* private repo, *contents only* — even in the
+  worst case where it leaked, someone could only read/write that one backup
+  file, not your account, your other repos, or the app's own repo.
+- The token is stored only in this browser's local storage. It is never
+  written into `index.html`, never committed, and never sent anywhere except
+  directly to `api.github.com` over HTTPS.
+- Still, don't set this up on a public/shared computer, and set an expiration
+  on the token so it dies on its own if you forget about it.
+- If you ever suspect it leaked, revoke it instantly from GitHub's Developer
+  settings page — that alone kills it.
+
 ## Honest limits of the password gate
 
 This is a **client-side deterrent, not real security**. The page (including the
